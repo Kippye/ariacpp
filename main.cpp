@@ -1,224 +1,21 @@
-#include <algorithm>
-#include <array>
-#include <cassert>
-#include <cstdint>
-#include <format>
-#include <ios>
+#include "aria.h"
+#include <chrono>
 #include <iostream>
-#include <map>
-#include <span>
-#include <vector>
+#include <print>
+#include <random>
 
-// Size of a block in bytes
-constexpr size_t BLOCK_SIZE = 16;
-
-class AriaKey {
-public:
-  virtual size_t getSize() const = 0;
-  virtual std::span<const uint8_t> getValue() const = 0;
-};
-
-class AriaKey128 : public AriaKey {
-private:
-  std::array<uint8_t, 16> _key;
-
-public:
-  AriaKey128(const std::array<uint8_t, 16> &key) { _key = key; }
-
-  size_t getSize() const override { return _key.size(); }
-  std::span<const uint8_t> getValue() const override { return _key; }
-};
-
-class AriaKey192 : public AriaKey {
-private:
-  std::array<uint8_t, 24> _key;
-
-public:
-  AriaKey192(const std::array<uint8_t, 24> &key) { _key = key; }
-
-  size_t getSize() const override { return _key.size(); }
-  std::span<const uint8_t> getValue() const override { return _key; }
-};
-
-class AriaKey256 : public AriaKey {
-private:
-  std::array<uint8_t, 32> _key;
-
-public:
-  AriaKey256(const std::array<uint8_t, 32> &key) { _key = key; }
-
-  size_t getSize() const override { return _key.size(); }
-  std::span<const uint8_t> getValue() const override { return _key; }
-};
-
-const std::map<size_t, size_t> roundsByKeySizeBytes = {
-    {16, 12},
-    {24, 14},
-    {32, 16},
-};
-
-std::array<uint8_t, BLOCK_SIZE> C1 = {0x51, 0x7c, 0xc1, 0xb7, 0x27, 0x22,
-                                      0x0a, 0x94, 0xfe, 0x13, 0xab, 0xe8,
-                                      0xfa, 0x9a, 0x6e, 0xe0};
-std::array<uint8_t, BLOCK_SIZE> C2 = {0x6d, 0xb1, 0x4a, 0xcc, 0x9e, 0x21,
-                                      0xc8, 0x20, 0xff, 0x28, 0xb1, 0xd5,
-                                      0xef, 0x5d, 0xe2, 0xb0};
-std::array<uint8_t, BLOCK_SIZE> C3 = {0xdb, 0x92, 0x37, 0x1d, 0x21, 0x26,
-                                      0xe9, 0x70, 0x03, 0x24, 0x97, 0x75,
-                                      0x04, 0xe8, 0xc9, 0x0e};
-
-constexpr uint8_t SB1[BLOCK_SIZE][BLOCK_SIZE] = {
-    {0x63, 0x7c, 0x77, 0x7b, 0xf2, 0x6b, 0x6f, 0xc5, 0x30, 0x01, 0x67, 0x2b,
-     0xfe, 0xd7, 0xab, 0x76},
-    {0xca, 0x82, 0xc9, 0x7d, 0xfa, 0x59, 0x47, 0xf0, 0xad, 0xd4, 0xa2, 0xaf,
-     0x9c, 0xa4, 0x72, 0xc0},
-    {0xb7, 0xfd, 0x93, 0x26, 0x36, 0x3f, 0xf7, 0xcc, 0x34, 0xa5, 0xe5, 0xf1,
-     0x71, 0xd8, 0x31, 0x15},
-    {0x04, 0xc7, 0x23, 0xc3, 0x18, 0x96, 0x05, 0x9a, 0x07, 0x12, 0x80, 0xe2,
-     0xeb, 0x27, 0xb2, 0x75},
-    {0x09, 0x83, 0x2c, 0x1a, 0x1b, 0x6e, 0x5a, 0xa0, 0x52, 0x3b, 0xd6, 0xb3,
-     0x29, 0xe3, 0x2f, 0x84},
-    {0x53, 0xd1, 0x00, 0xed, 0x20, 0xfc, 0xb1, 0x5b, 0x6a, 0xcb, 0xbe, 0x39,
-     0x4a, 0x4c, 0x58, 0xcf},
-    {0xd0, 0xef, 0xaa, 0xfb, 0x43, 0x4d, 0x33, 0x85, 0x45, 0xf9, 0x02, 0x7f,
-     0x50, 0x3c, 0x9f, 0xa8},
-    {0x51, 0xa3, 0x40, 0x8f, 0x92, 0x9d, 0x38, 0xf5, 0xbc, 0xb6, 0xda, 0x21,
-     0x10, 0xff, 0xf3, 0xd2},
-    {0xcd, 0x0c, 0x13, 0xec, 0x5f, 0x97, 0x44, 0x17, 0xc4, 0xa7, 0x7e, 0x3d,
-     0x64, 0x5d, 0x19, 0x73},
-    {0x60, 0x81, 0x4f, 0xdc, 0x22, 0x2a, 0x90, 0x88, 0x46, 0xee, 0xb8, 0x14,
-     0xde, 0x5e, 0x0b, 0xdb},
-    {0xe0, 0x32, 0x3a, 0x0a, 0x49, 0x06, 0x24, 0x5c, 0xc2, 0xd3, 0xac, 0x62,
-     0x91, 0x95, 0xe4, 0x79},
-    {0xe7, 0xc8, 0x37, 0x6d, 0x8d, 0xd5, 0x4e, 0xa9, 0x6c, 0x56, 0xf4, 0xea,
-     0x65, 0x7a, 0xae, 0x08},
-    {0xba, 0x78, 0x25, 0x2e, 0x1c, 0xa6, 0xb4, 0xc6, 0xe8, 0xdd, 0x74, 0x1f,
-     0x4b, 0xbd, 0x8b, 0x8a},
-    {0x70, 0x3e, 0xb5, 0x66, 0x48, 0x03, 0xf6, 0x0e, 0x61, 0x35, 0x57, 0xb9,
-     0x86, 0xc1, 0x1d, 0x9e},
-    {0xe1, 0xf8, 0x98, 0x11, 0x69, 0xd9, 0x8e, 0x94, 0x9b, 0x1e, 0x87, 0xe9,
-     0xce, 0x55, 0x28, 0xdf},
-    {0x8c, 0xa1, 0x89, 0x0d, 0xbf, 0xe6, 0x42, 0x68, 0x41, 0x99, 0x2d, 0x0f,
-     0xb0, 0x54, 0xbb, 0x16},
-};
-
-constexpr uint8_t SB2[BLOCK_SIZE][BLOCK_SIZE] = {
-    {0xe2, 0x4e, 0x54, 0xfc, 0x94, 0xc2, 0x4a, 0xcc, 0x62, 0x0d, 0x6a, 0x46,
-     0x3c, 0x4d, 0x8b, 0xd1},
-    {0x5e, 0xfa, 0x64, 0xcb, 0xb4, 0x97, 0xbe, 0x2b, 0xbc, 0x77, 0x2e, 0x03,
-     0xd3, 0x19, 0x59, 0xc1},
-    {0x1d, 0x06, 0x41, 0x6b, 0x55, 0xf0, 0x99, 0x69, 0xea, 0x9c, 0x18, 0xae,
-     0x63, 0xdf, 0xe7, 0xbb},
-    {0x00, 0x73, 0x66, 0xfb, 0x96, 0x4c, 0x85, 0xe4, 0x3a, 0x09, 0x45, 0xaa,
-     0x0f, 0xee, 0x10, 0xeb},
-    {0x2d, 0x7f, 0xf4, 0x29, 0xac, 0xcf, 0xad, 0x91, 0x8d, 0x78, 0xc8, 0x95,
-     0xf9, 0x2f, 0xce, 0xcd},
-    {0x08, 0x7a, 0x88, 0x38, 0x5c, 0x83, 0x2a, 0x28, 0x47, 0xdb, 0xb8, 0xc7,
-     0x93, 0xa4, 0x12, 0x53},
-    {0xff, 0x87, 0x0e, 0x31, 0x36, 0x21, 0x58, 0x48, 0x01, 0x8e, 0x37, 0x74,
-     0x32, 0xca, 0xe9, 0xb1},
-    {0xb7, 0xab, 0x0c, 0xd7, 0xc4, 0x56, 0x42, 0x26, 0x07, 0x98, 0x60, 0xd9,
-     0xb6, 0xb9, 0x11, 0x40},
-    {0xec, 0x20, 0x8c, 0xbd, 0xa0, 0xc9, 0x84, 0x04, 0x49, 0x23, 0xf1, 0x4f,
-     0x50, 0x1f, 0x13, 0xdc},
-    {0xd8, 0xc0, 0x9e, 0x57, 0xe3, 0xc3, 0x7b, 0x65, 0x3b, 0x02, 0x8f, 0x3e,
-     0xe8, 0x25, 0x92, 0xe5},
-    {0x15, 0xdd, 0xfd, 0x17, 0xa9, 0xbf, 0xd4, 0x9a, 0x7e, 0xc5, 0x39, 0x67,
-     0xfe, 0x76, 0x9d, 0x43},
-    {0xa7, 0xe1, 0xd0, 0xf5, 0x68, 0xf2, 0x1b, 0x34, 0x70, 0x05, 0xa3, 0x8a,
-     0xd5, 0x79, 0x86, 0xa8},
-    {0x30, 0xc6, 0x51, 0x4b, 0x1e, 0xa6, 0x27, 0xf6, 0x35, 0xd2, 0x6e, 0x24,
-     0x16, 0x82, 0x5f, 0xda},
-    {0xe6, 0x75, 0xa2, 0xef, 0x2c, 0xb2, 0x1c, 0x9f, 0x5d, 0x6f, 0x80, 0x0a,
-     0x72, 0x44, 0x9b, 0x6c},
-    {0x90, 0x0b, 0x5b, 0x33, 0x7d, 0x5a, 0x52, 0xf3, 0x61, 0xa1, 0xf7, 0xb0,
-     0xd6, 0x3f, 0x7c, 0x6d},
-    {0xed, 0x14, 0xe0, 0xa5, 0x3d, 0x22, 0xb3, 0xf8, 0x89, 0xde, 0x71, 0x1a,
-     0xaf, 0xba, 0xb5, 0x81},
-};
-
-constexpr uint8_t SB3[BLOCK_SIZE][BLOCK_SIZE] = {
-    {0x52, 0x09, 0x6a, 0xd5, 0x30, 0x36, 0xa5, 0x38, 0xbf, 0x40, 0xa3, 0x9e,
-     0x81, 0xf3, 0xd7, 0xfb},
-    {0x7c, 0xe3, 0x39, 0x82, 0x9b, 0x2f, 0xff, 0x87, 0x34, 0x8e, 0x43, 0x44,
-     0xc4, 0xde, 0xe9, 0xcb},
-    {0x54, 0x7b, 0x94, 0x32, 0xa6, 0xc2, 0x23, 0x3d, 0xee, 0x4c, 0x95, 0x0b,
-     0x42, 0xfa, 0xc3, 0x4e},
-    {0x08, 0x2e, 0xa1, 0x66, 0x28, 0xd9, 0x24, 0xb2, 0x76, 0x5b, 0xa2, 0x49,
-     0x6d, 0x8b, 0xd1, 0x25},
-    {0x72, 0xf8, 0xf6, 0x64, 0x86, 0x68, 0x98, 0x16, 0xd4, 0xa4, 0x5c, 0xcc,
-     0x5d, 0x65, 0xb6, 0x92},
-    {0x6c, 0x70, 0x48, 0x50, 0xfd, 0xed, 0xb9, 0xda, 0x5e, 0x15, 0x46, 0x57,
-     0xa7, 0x8d, 0x9d, 0x84},
-    {0x90, 0xd8, 0xab, 0x00, 0x8c, 0xbc, 0xd3, 0x0a, 0xf7, 0xe4, 0x58, 0x05,
-     0xb8, 0xb3, 0x45, 0x06},
-    {0xd0, 0x2c, 0x1e, 0x8f, 0xca, 0x3f, 0x0f, 0x02, 0xc1, 0xaf, 0xbd, 0x03,
-     0x01, 0x13, 0x8a, 0x6b},
-    {0x3a, 0x91, 0x11, 0x41, 0x4f, 0x67, 0xdc, 0xea, 0x97, 0xf2, 0xcf, 0xce,
-     0xf0, 0xb4, 0xe6, 0x73},
-    {0x96, 0xac, 0x74, 0x22, 0xe7, 0xad, 0x35, 0x85, 0xe2, 0xf9, 0x37, 0xe8,
-     0x1c, 0x75, 0xdf, 0x6e},
-    {0x47, 0xf1, 0x1a, 0x71, 0x1d, 0x29, 0xc5, 0x89, 0x6f, 0xb7, 0x62, 0x0e,
-     0xaa, 0x18, 0xbe, 0x1b},
-    {0xfc, 0x56, 0x3e, 0x4b, 0xc6, 0xd2, 0x79, 0x20, 0x9a, 0xdb, 0xc0, 0xfe,
-     0x78, 0xcd, 0x5a, 0xf4},
-    {0x1f, 0xdd, 0xa8, 0x33, 0x88, 0x07, 0xc7, 0x31, 0xb1, 0x12, 0x10, 0x59,
-     0x27, 0x80, 0xec, 0x5f},
-    {0x60, 0x51, 0x7f, 0xa9, 0x19, 0xb5, 0x4a, 0x0d, 0x2d, 0xe5, 0x7a, 0x9f,
-     0x93, 0xc9, 0x9c, 0xef},
-    {0xa0, 0xe0, 0x3b, 0x4d, 0xae, 0x2a, 0xf5, 0xb0, 0xc8, 0xeb, 0xbb, 0x3c,
-     0x83, 0x53, 0x99, 0x61},
-    {0x17, 0x2b, 0x04, 0x7e, 0xba, 0x77, 0xd6, 0x26, 0xe1, 0x69, 0x14, 0x63,
-     0x55, 0x21, 0x0c, 0x7d},
-};
-
-constexpr uint8_t SB4[16][16] = {
-    {0x30, 0x68, 0x99, 0x1b, 0x87, 0xb9, 0x21, 0x78, 0x50, 0x39, 0xdb, 0xe1,
-     0x72, 0x09, 0x62, 0x3c},
-    {0x3e, 0x7e, 0x5e, 0x8e, 0xf1, 0xa0, 0xcc, 0xa3, 0x2a, 0x1d, 0xfb, 0xb6,
-     0xd6, 0x20, 0xc4, 0x8d},
-    {0x81, 0x65, 0xf5, 0x89, 0xcb, 0x9d, 0x77, 0xc6, 0x57, 0x43, 0x56, 0x17,
-     0xd4, 0x40, 0x1a, 0x4d},
-    {0xc0, 0x63, 0x6c, 0xe3, 0xb7, 0xc8, 0x64, 0x6a, 0x53, 0xaa, 0x38, 0x98,
-     0x0c, 0xf4, 0x9b, 0xed},
-    {0x7f, 0x22, 0x76, 0xaf, 0xdd, 0x3a, 0x0b, 0x58, 0x67, 0x88, 0x06, 0xc3,
-     0x35, 0x0d, 0x01, 0x8b},
-    {0x8c, 0xc2, 0xe6, 0x5f, 0x02, 0x24, 0x75, 0x93, 0x66, 0x1e, 0xe5, 0xe2,
-     0x54, 0xd8, 0x10, 0xce},
-    {0x7a, 0xe8, 0x08, 0x2c, 0x12, 0x97, 0x32, 0xab, 0xb4, 0x27, 0x0a, 0x23,
-     0xdf, 0xef, 0xca, 0xd9},
-    {0xb8, 0xfa, 0xdc, 0x31, 0x6b, 0xd1, 0xad, 0x19, 0x49, 0xbd, 0x51, 0x96,
-     0xee, 0xe4, 0xa8, 0x41},
-    {0xda, 0xff, 0xcd, 0x55, 0x86, 0x36, 0xbe, 0x61, 0x52, 0xf8, 0xbb, 0x0e,
-     0x82, 0x48, 0x69, 0x9a},
-    {0xe0, 0x47, 0x9e, 0x5c, 0x04, 0x4b, 0x34, 0x15, 0x79, 0x26, 0xa7, 0xde,
-     0x29, 0xae, 0x92, 0xd7},
-    {0x84, 0xe9, 0xd2, 0xba, 0x5d, 0xf3, 0xc5, 0xb0, 0xbf, 0xa4, 0x3b, 0x71,
-     0x44, 0x46, 0x2b, 0xfc},
-    {0xeb, 0x6f, 0xd5, 0xf6, 0x14, 0xfe, 0x7c, 0x70, 0x5a, 0x7d, 0xfd, 0x2f,
-     0x18, 0x83, 0x16, 0xa5},
-    {0x91, 0x1f, 0x05, 0x95, 0x74, 0xa9, 0xc1, 0x5b, 0x4a, 0x85, 0x6d, 0x13,
-     0x07, 0x4f, 0x4e, 0x45},
-    {0xb2, 0x0f, 0xc9, 0x1c, 0xa6, 0xbc, 0xec, 0x73, 0x90, 0x7b, 0xcf, 0x59,
-     0x8f, 0xa1, 0xf9, 0x2d},
-    {0xf2, 0xb1, 0x00, 0x94, 0x37, 0x9f, 0xd0, 0x2e, 0x9c, 0x6e, 0x28, 0x3f,
-     0x80, 0xf0, 0x3d, 0xd3},
-    {0x25, 0x8a, 0xb5, 0xe7, 0x42, 0xb3, 0xc7, 0xea, 0xf7, 0x4c, 0x11, 0x33,
-     0x03, 0xa2, 0xac, 0x60},
-};
-
-// TEMP
-void printAsHex(const char *label, uint8_t input) {
-  std::cout << label << std::hex << (int)input;
-}
+template <class T, class U>
+concept Derived = std::is_base_of<U, T>::value;
 
 template <std::size_t S>
-void printAsHex(const char *label, const std::array<uint8_t, S> &input) {
-  std::cout << label;
-  for (int i = 0; i < input.size(); i++) {
-    std::cout << std::hex << (int)input[i] << " ";
+bool blocksEqual(const std::array<uint8_t, S> &a,
+                 const std::array<uint8_t, S> &b) {
+  for (int i = 0; i < S; i++) {
+    if (a[i] != b[i]) {
+      return false;
+    }
   }
-  std::cout << std::endl;
+  return true;
 }
 
 void printAsHex(const char *label, const std::span<const uint8_t> &input) {
@@ -229,7 +26,6 @@ void printAsHex(const char *label, const std::span<const uint8_t> &input) {
   std::cout << std::endl;
 }
 
-// TEMP
 std::string bytesToString(const std::array<uint8_t, BLOCK_SIZE> bytes) {
   std::string str;
   str.assign(reinterpret_cast<std::string::value_type *>(
@@ -238,354 +34,111 @@ std::string bytesToString(const std::array<uint8_t, BLOCK_SIZE> bytes) {
   return str;
 }
 
-template <std::size_t S>
-bool blocksEqual(const std::array<uint8_t, S> &a,
-                 const std::array<uint8_t, S> &b) {
-  for (int i = 0; i < a.size(); i++) {
-    if (a[i] != b[i]) {
-      return false;
+std::random_device rd;
+std::uniform_int_distribution<uint32_t> dist(0, 0xFFFFFFFFu);
+
+// For now, just 128-bit keys
+template <Derived<AriaKey> K, size_t S> K getRandomKey() {
+  std::array<uint8_t, S> data = {};
+
+  int offset = 0;
+  uint32_t bits = 0;
+  for (uint8_t &d : data) {
+    if (offset == 0)
+      bits = dist(rd);
+    d = static_cast<uint8_t>(bits & 0xFF);
+    bits >>= 8;
+    if (++offset >= 4)
+      offset = 0;
+  }
+
+  return K(data);
+}
+
+void getRandomBlock(std::array<uint8_t, 16> &block) {
+  int offset = 0;
+  uint32_t bits = 0;
+  for (uint8_t &d : block) {
+    if (offset == 0)
+      bits = dist(rd);
+    d = static_cast<uint8_t>(bits & 0xFF);
+    bits >>= 8;
+    if (++offset >= 4)
+      offset = 0;
+  }
+}
+
+/* Current state:
+ * [ARIA-128] x 1 000 000: ~20 seconds with -O3, 1 minute otherwise
+ * ~20% of testing time spent on generating random keys and blocks
+ *
+ * Goals:
+ * [ARIA-128] x 1 000 000: 10 seconds with -O3
+ * Also allow persisting the keys for fast repeated encryption / decryption
+ * with the same master key (more of a real use case)
+ */
+#define PRECISE_TIMING false
+
+void test(long reps, long printReps) {
+  std::array<uint8_t, 16> block;
+  std::array<uint8_t, 16> encrypted;
+  std::array<uint8_t, 16> decrypted;
+  auto start = std::chrono::high_resolution_clock::now();
+  for (int i = 0; i < reps; i++) {
+#if PRECISE_TIMING
+    auto beforeGen = std::chrono::high_resolution_clock::now();
+#endif
+    const AriaKey &key = getRandomKey<AriaKey128, 16>();
+    getRandomBlock(block);
+#if PRECISE_TIMING
+    auto afterGen = std::chrono::high_resolution_clock::now();
+#endif
+
+    // printAsHex("Key: ", key.getValue());
+    // printAsHex("Plaintext: ", block);
+
+#if PRECISE_TIMING
+    auto beforeCrypt = std::chrono::high_resolution_clock::now();
+#endif
+    encrypt(block, key, encrypted);
+// printAsHex("Encrypted: ", encrypted);
+#if PRECISE_TIMING
+    auto afterEncrypt = std::chrono::high_resolution_clock::now();
+#endif
+    decrypt(encrypted, key, decrypted);
+#if PRECISE_TIMING
+    auto afterCrypt = std::chrono::high_resolution_clock::now();
+#endif
+    // printAsHex("Decrypted: ", decrypted);
+    if (!blocksEqual(block, decrypted)) {
+      std::cerr << std::format("Plaintext != decrypted (iteration {})", i)
+                << std::endl;
+      printAsHex("Key: ", key.getValue());
+      printAsHex("Plaintext: ", block);
+      printAsHex("Encrypted: ", encrypted);
+      printAsHex("Decrypted: ", decrypted);
+      return;
+    }
+    auto afterAll = std::chrono::high_resolution_clock::now();
+
+#if PRECISE_TIMING
+    std::print("Total: {}\n - Generation: {}\n - Cryptography: {}\n   of "
+               "which: Encryption: {}, "
+               "Decryption: {}\n",
+               afterAll - beforeGen, afterGen - beforeGen,
+               afterCrypt - beforeCrypt, afterEncrypt - beforeCrypt,
+               afterCrypt - afterEncrypt);
+#endif
+
+    if (i % printReps == 0 && i != 0) {
+      std::cout << "i: " << std::dec << i << std::endl;
     }
   }
-  return true;
-}
-
-template <std::size_t S>
-std::array<uint8_t, S> xorBlocks(const std::array<uint8_t, S> &a,
-                                 const std::array<uint8_t, S> &b) {
-  std::array<uint8_t, S> out = {};
-  for (int i = 0; i < out.size(); i++) {
-    out[i] = a[i] ^ b[i];
-  }
-  return out;
-}
-
-std::array<uint8_t, BLOCK_SIZE>
-rotRight128(const std::array<uint8_t, BLOCK_SIZE> &input, unsigned int shift) {
-  std::array<uint8_t, BLOCK_SIZE> output{};
-
-  shift %= 128;
-
-  for (int i = 0; i < 128; ++i) {
-    int destinationBit = (i + shift) % 128;
-
-    int bit = (input[i / 8] >> (7 - i % 8)) & 1;
-
-    output[destinationBit / 8] |=
-        static_cast<uint8_t>(bit << (7 - destinationBit % 8));
-  }
-
-  return output;
-}
-
-std::array<uint8_t, BLOCK_SIZE>
-rotLeft128(const std::array<uint8_t, BLOCK_SIZE> &input, unsigned int shift) {
-  // return rotLeft128(input, 128 - (shift % 128));
-  std::array<uint8_t, BLOCK_SIZE> output{};
-
-  shift %= 128;
-
-  for (int i = 0; i < 128; ++i) {
-    int destinationBit = (i - shift + 128) % 128;
-
-    int bit = (input[i / 8] >> (7 - i % 8)) & 1;
-
-    output[destinationBit / 8] |= bit << (7 - destinationBit % 8);
-  }
-
-  return output;
-}
-
-// Substitution layers
-std::array<uint8_t, BLOCK_SIZE> SL1(std::array<uint8_t, BLOCK_SIZE> input) {
-  std::array<uint8_t, BLOCK_SIZE> output;
-  for (int i = 0; i < BLOCK_SIZE; i++) {
-    uint8_t v;
-    uint8_t y = input[i] >> 4;
-    uint8_t x = input[i] & 0x0f;
-
-    switch (i % 4) {
-    case 0:
-      v = SB1[y][x];
-      break;
-    case 1:
-      v = SB2[y][x];
-      break;
-    case 2:
-      v = SB3[y][x];
-      break;
-    case 3:
-      v = SB4[y][x];
-      break;
-    }
-    output[i] = v;
-  }
-  return output;
-}
-
-std::array<uint8_t, BLOCK_SIZE> SL2(std::array<uint8_t, BLOCK_SIZE> input) {
-  std::array<uint8_t, BLOCK_SIZE> output;
-  for (int i = 0; i < BLOCK_SIZE; i++) {
-    uint8_t v;
-    uint8_t y = input[i] >> 4;
-    uint8_t x = input[i] & 0x0f;
-
-    // This is the only difference between SL1 and SL2
-    // The SB index starts at 2 (SB3) instead of 0 (SB1)
-    switch ((i + 2) % 4) {
-    case 0:
-      v = SB1[y][x];
-      break;
-    case 1:
-      v = SB2[y][x];
-      break;
-    case 2:
-      v = SB3[y][x];
-      break;
-    case 3:
-      v = SB4[y][x];
-      break;
-    }
-    output[i] = v;
-  }
-  return output;
-}
-
-std::array<uint8_t, BLOCK_SIZE>
-diffusionLayer(std::array<uint8_t, BLOCK_SIZE> in) {
-  std::array<uint8_t, BLOCK_SIZE> out = {};
-  out[0] = in[3] ^ in[4] ^ in[6] ^ in[8] ^ in[9] ^ in[13] ^ in[14];
-  out[1] = in[2] ^ in[5] ^ in[7] ^ in[8] ^ in[9] ^ in[12] ^ in[15];
-  out[2] = in[1] ^ in[4] ^ in[6] ^ in[10] ^ in[11] ^ in[12] ^ in[15];
-  out[3] = in[0] ^ in[5] ^ in[7] ^ in[10] ^ in[11] ^ in[13] ^ in[14];
-  out[4] = in[0] ^ in[2] ^ in[5] ^ in[8] ^ in[11] ^ in[14] ^ in[15];
-  out[5] = in[1] ^ in[3] ^ in[4] ^ in[9] ^ in[10] ^ in[14] ^ in[15];
-  out[6] = in[0] ^ in[2] ^ in[7] ^ in[9] ^ in[10] ^ in[12] ^ in[13];
-  out[7] = in[1] ^ in[3] ^ in[6] ^ in[8] ^ in[11] ^ in[12] ^ in[13];
-  out[8] = in[0] ^ in[1] ^ in[4] ^ in[7] ^ in[10] ^ in[13] ^ in[15];
-  out[9] = in[0] ^ in[1] ^ in[5] ^ in[6] ^ in[11] ^ in[12] ^ in[14];
-  out[10] = in[2] ^ in[3] ^ in[5] ^ in[6] ^ in[8] ^ in[13] ^ in[15];
-  out[11] = in[2] ^ in[3] ^ in[4] ^ in[7] ^ in[9] ^ in[12] ^ in[14];
-  out[12] = in[1] ^ in[2] ^ in[6] ^ in[7] ^ in[9] ^ in[11] ^ in[12];
-  out[13] = in[0] ^ in[3] ^ in[6] ^ in[7] ^ in[8] ^ in[10] ^ in[13];
-  out[14] = in[0] ^ in[3] ^ in[4] ^ in[5] ^ in[9] ^ in[11] ^ in[14];
-  out[15] = in[1] ^ in[2] ^ in[4] ^ in[5] ^ in[8] ^ in[10] ^ in[15];
-  return out;
-}
-
-// The odd round function
-std::array<uint8_t, BLOCK_SIZE>
-roundFunctionOdd(std::array<uint8_t, BLOCK_SIZE> D,
-                 std::array<uint8_t, BLOCK_SIZE> RK) {
-  return diffusionLayer(SL1(xorBlocks(D, RK)));
-}
-
-// The even round function
-std::array<uint8_t, BLOCK_SIZE>
-roundFunctionEven(std::array<uint8_t, BLOCK_SIZE> D,
-                  std::array<uint8_t, BLOCK_SIZE> RK) {
-  return diffusionLayer(SL2(xorBlocks(D, RK)));
-}
-
-std::vector<std::array<uint8_t, BLOCK_SIZE>>
-createEncryptionKeys(const AriaKey &key) {
-  size_t roundCount = roundsByKeySizeBytes.at(key.getSize());
-  std::array<uint8_t, BLOCK_SIZE> *CK1;
-  std::array<uint8_t, BLOCK_SIZE> *CK2;
-  std::array<uint8_t, BLOCK_SIZE> *CK3;
-
-  switch (key.getSize()) {
-  case 16:
-    CK1 = &C1;
-    CK2 = &C2;
-    CK3 = &C3;
-    break;
-  case 24:
-    CK1 = &C2;
-    CK2 = &C3;
-    CK3 = &C1;
-    break;
-  case 32:
-    CK1 = &C3;
-    CK2 = &C1;
-    CK3 = &C2;
-    break;
-  default:
-    throw new std::invalid_argument(
-        std::format("Invalid key length (bytes): {}", key.getSize()));
-  }
-
-  std::array<uint8_t, 16> keyLeft = {};
-  const std::span<const uint8_t> &keyContent = key.getValue();
-  std::copy(keyContent.begin(), keyContent.end(), keyLeft.begin());
-
-  std::array<uint8_t, 16> keyRight = {};
-  int remainingKeyBytes = key.getSize() - 16;
-  if (remainingKeyBytes > 0) {
-    std::copy(keyContent.begin() + 16, keyContent.end(), keyRight.begin());
-  }
-  for (int i = remainingKeyBytes; i < 16; i++) {
-    keyRight[i] = 0;
-  }
-
-  // Intermediate round values
-  std::array<uint8_t, 16> W0 = keyLeft;
-
-  auto W1 = xorBlocks(roundFunctionOdd(W0, *CK1), keyRight);
-  auto W2 = xorBlocks(roundFunctionEven(W1, *CK2), W0);
-  auto W3 = xorBlocks(roundFunctionOdd(W2, *CK3), W1);
-
-  // Compute encryption round keys
-  std::vector<std::array<uint8_t, 16>> encryptionKeys = {};
-
-  // TODO: Figure out how to do this iteratively, only make as many as we need
-  // NOTE: There's an extra key for the last round
-  encryptionKeys.push_back(xorBlocks(W0, rotRight128(W1, 19)));
-  encryptionKeys.push_back(xorBlocks(W1, rotRight128(W2, 19)));
-  encryptionKeys.push_back(xorBlocks(W2, rotRight128(W3, 19)));
-  encryptionKeys.push_back(xorBlocks(rotRight128(W0, 19), W3));
-
-  encryptionKeys.push_back(xorBlocks(W0, rotRight128(W1, 31)));
-  encryptionKeys.push_back(xorBlocks(W1, rotRight128(W2, 31)));
-  encryptionKeys.push_back(xorBlocks(W2, rotRight128(W3, 31)));
-  encryptionKeys.push_back(xorBlocks(rotRight128(W0, 31), W3));
-
-  encryptionKeys.push_back(xorBlocks(W0, rotLeft128(W1, 61)));
-  encryptionKeys.push_back(xorBlocks(W1, rotLeft128(W2, 61)));
-  encryptionKeys.push_back(xorBlocks(W2, rotLeft128(W3, 61)));
-  encryptionKeys.push_back(xorBlocks(rotLeft128(W0, 61), W3));
-
-  encryptionKeys.push_back(xorBlocks(W0, rotLeft128(W1, 31)));
-  if (roundCount > 12) {
-    encryptionKeys.push_back(xorBlocks(W1, rotLeft128(W2, 31)));
-    encryptionKeys.push_back(xorBlocks(W2, rotLeft128(W3, 31)));
-  }
-  if (roundCount > 14) {
-    encryptionKeys.push_back(xorBlocks(W3, rotLeft128(W0, 31)));
-    encryptionKeys.push_back(xorBlocks(W0, rotLeft128(W1, 19)));
-  }
-
-  return encryptionKeys;
-}
-
-std::vector<std::array<uint8_t, 16>> createDecryptionKeys(const AriaKey &key) {
-  size_t roundCount = roundsByKeySizeBytes.at(key.getSize());
-
-  // Compute decryption round keys based on the encryption keys
-  std::vector<std::array<uint8_t, 16>> encryptionKeys =
-      createEncryptionKeys(key);
-  std::vector<std::array<uint8_t, 16>> decryptionKeys = {};
-
-  decryptionKeys.push_back(encryptionKeys.back());
-  for (int i = 1; i < roundCount; i++) {
-    decryptionKeys.push_back(diffusionLayer(encryptionKeys[roundCount - i]));
-  }
-  decryptionKeys.push_back(encryptionKeys.front());
-
-  return decryptionKeys;
-}
-
-/// @brief Encrypt a block using a key.
-/// @param plaintext
-/// @param key
-/// @return Encrypted block
-std::array<uint8_t, BLOCK_SIZE>
-encrypt(const std::array<uint8_t, BLOCK_SIZE> &plaintext, const AriaKey &key) {
-  std::array<uint8_t, BLOCK_SIZE> ciphertext = {};
-  std::copy(plaintext.begin(), plaintext.end(), ciphertext.begin());
-
-  auto encryptionKeys = createEncryptionKeys(key);
-
-  for (int i = 0; i < encryptionKeys.size() - 1; i++) {
-    // Odd round
-    if (i % 2 ==
-        0) // This is flipped because index 0 (even) is round 1 (odd), etc
-    {
-      auto roundResult = roundFunctionOdd(ciphertext, encryptionKeys[i]);
-      std::copy(roundResult.begin(), roundResult.end(), ciphertext.begin());
-    }
-    // Even round
-    else {
-      // Last round
-      if (i == encryptionKeys.size() - 2) {
-        return xorBlocks(SL2(xorBlocks(ciphertext, encryptionKeys[i])),
-                         encryptionKeys[i + 1]);
-      }
-      auto roundResult = roundFunctionEven(ciphertext, encryptionKeys[i]);
-      std::copy(roundResult.begin(), roundResult.end(), ciphertext.begin());
-    }
-  }
-  throw std::logic_error("Failed to encrypt");
-}
-
-/// @brief Decrypt a ciphertext block using a key.
-/// @param ciphertext
-/// @param key
-/// @return Decrypted block
-std::array<uint8_t, BLOCK_SIZE>
-decrypt(const std::array<uint8_t, BLOCK_SIZE> &ciphertext, const AriaKey &key) {
-  std::array<uint8_t, BLOCK_SIZE> plaintext = {};
-  std::copy(ciphertext.begin(), ciphertext.end(), plaintext.begin());
-
-  auto decryptionKeys = createDecryptionKeys(key);
-
-  for (int i = 0; i < decryptionKeys.size() - 1; i++) {
-    // Odd round
-    if (i % 2 ==
-        0) // This is flipped because index 0 (even) is round 1 (odd), etc
-    {
-      auto roundResult = roundFunctionOdd(plaintext, decryptionKeys[i]);
-      std::copy(roundResult.begin(), roundResult.end(), plaintext.begin());
-    }
-    // Even round
-    else {
-      // Last round
-      if (i == decryptionKeys.size() - 2) {
-        return xorBlocks(SL2(xorBlocks(plaintext, decryptionKeys[i])),
-                         decryptionKeys[i + 1]);
-      }
-      auto roundResult = roundFunctionEven(plaintext, decryptionKeys[i]);
-      std::copy(roundResult.begin(), roundResult.end(), plaintext.begin());
-    }
-  }
-  throw std::logic_error("Failed to decrypt");
+  auto duration = std::chrono::high_resolution_clock::now() - start;
+  std::print("Completed {} iterations in {:%H:%M:%S}\n", reps, duration);
 }
 
 int main() {
-  std::array<uint8_t, 16> bytes128 = {};
-  std::array<uint8_t, 24> bytes192 = {};
-  std::array<uint8_t, 32> bytes256 = {};
-  // Generate a key of each size
-  for (int i = 0; i < 32; i++) {
-    uint8_t byte = (uint8_t)(i % 16);
-    bytes256[i] = byte;
-    if (i < 24) {
-      bytes192[i] = byte;
-    }
-    if (i < 16) {
-      bytes128[i] = byte;
-    }
-  }
-  AriaKey128 key128 = AriaKey128(bytes128);
-  AriaKey192 key192 = AriaKey192(bytes192);
-  AriaKey256 key256 = AriaKey256(bytes256);
-  // Select a key for testing
-  const AriaKey &key = key128;
-
-  printAsHex("Key: ", key.getValue());
-
-  std::string plaintextStr = "ARIA is cool";
-  std::array<uint8_t, BLOCK_SIZE> plaintext = {};
-  for (int i = 0; i < plaintextStr.size() && i < plaintext.size(); i++) {
-    plaintext[i] = plaintextStr[i];
-  }
-  printAsHex("Plaintext: ", plaintext);
-
-  auto encrypted = encrypt(plaintext, key);
-  printAsHex("Encrypted: ", encrypted);
-  auto decrypted = decrypt(encrypted, key);
-  printAsHex("Decrypted: ", decrypted);
-
-  std::cout << "Decrypted string: " << bytesToString(decrypted) << std::endl;
-
+  test(1000000, 100000);
   return 0;
 }
