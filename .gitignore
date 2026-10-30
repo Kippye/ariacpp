@@ -1,2 +1,4 @@
 *.out
 doc.cpp
+build/
+.clangd
