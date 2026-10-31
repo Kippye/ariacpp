@@ -1,4 +1,5 @@
 #include "aria.h"
+#include "util.h"
 
 #include <algorithm>
 #include <array>
@@ -9,23 +10,23 @@
 #include <span>
 #include <vector>
 
-const std::map<size_t, size_t> roundsByKeySizeBytes = {
-    {16, 12},
-    {24, 14},
-    {32, 16},
+const std::map<size_t, size_t> roundsByKeySize = {
+    {128, 12},
+    {192, 14},
+    {256, 16},
 };
 
-std::array<uint8_t, BLOCK_SIZE> C1 = {0x51, 0x7c, 0xc1, 0xb7, 0x27, 0x22,
-                                      0x0a, 0x94, 0xfe, 0x13, 0xab, 0xe8,
-                                      0xfa, 0x9a, 0x6e, 0xe0};
-std::array<uint8_t, BLOCK_SIZE> C2 = {0x6d, 0xb1, 0x4a, 0xcc, 0x9e, 0x21,
-                                      0xc8, 0x20, 0xff, 0x28, 0xb1, 0xd5,
-                                      0xef, 0x5d, 0xe2, 0xb0};
-std::array<uint8_t, BLOCK_SIZE> C3 = {0xdb, 0x92, 0x37, 0x1d, 0x21, 0x26,
-                                      0xe9, 0x70, 0x03, 0x24, 0x97, 0x75,
-                                      0x04, 0xe8, 0xc9, 0x0e};
+std::array<uint8_t, BLOCK_SIZE * CHUNK_BYTES> C1 = {
+    0x51, 0x7c, 0xc1, 0xb7, 0x27, 0x22, 0x0a, 0x94,
+    0xfe, 0x13, 0xab, 0xe8, 0xfa, 0x9a, 0x6e, 0xe0};
+std::array<uint8_t, BLOCK_SIZE * CHUNK_BYTES> C2 = {
+    0x6d, 0xb1, 0x4a, 0xcc, 0x9e, 0x21, 0xc8, 0x20,
+    0xff, 0x28, 0xb1, 0xd5, 0xef, 0x5d, 0xe2, 0xb0};
+std::array<uint8_t, BLOCK_SIZE * CHUNK_BYTES> C3 = {
+    0xdb, 0x92, 0x37, 0x1d, 0x21, 0x26, 0xe9, 0x70,
+    0x03, 0x24, 0x97, 0x75, 0x04, 0xe8, 0xc9, 0x0e};
 
-constexpr uint8_t SB1[BLOCK_SIZE][BLOCK_SIZE] = {
+constexpr uint8_t SB1[BLOCK_SIZE * CHUNK_BYTES][BLOCK_SIZE * CHUNK_BYTES] = {
     {0x63, 0x7c, 0x77, 0x7b, 0xf2, 0x6b, 0x6f, 0xc5, 0x30, 0x01, 0x67, 0x2b,
      0xfe, 0xd7, 0xab, 0x76},
     {0xca, 0x82, 0xc9, 0x7d, 0xfa, 0x59, 0x47, 0xf0, 0xad, 0xd4, 0xa2, 0xaf,
@@ -60,7 +61,7 @@ constexpr uint8_t SB1[BLOCK_SIZE][BLOCK_SIZE] = {
      0xb0, 0x54, 0xbb, 0x16},
 };
 
-constexpr uint8_t SB2[BLOCK_SIZE][BLOCK_SIZE] = {
+constexpr uint8_t SB2[BLOCK_SIZE * CHUNK_BYTES][BLOCK_SIZE * CHUNK_BYTES] = {
     {0xe2, 0x4e, 0x54, 0xfc, 0x94, 0xc2, 0x4a, 0xcc, 0x62, 0x0d, 0x6a, 0x46,
      0x3c, 0x4d, 0x8b, 0xd1},
     {0x5e, 0xfa, 0x64, 0xcb, 0xb4, 0x97, 0xbe, 0x2b, 0xbc, 0x77, 0x2e, 0x03,
@@ -95,7 +96,7 @@ constexpr uint8_t SB2[BLOCK_SIZE][BLOCK_SIZE] = {
      0xaf, 0xba, 0xb5, 0x81},
 };
 
-constexpr uint8_t SB3[BLOCK_SIZE][BLOCK_SIZE] = {
+constexpr uint8_t SB3[BLOCK_SIZE * CHUNK_BYTES][BLOCK_SIZE * CHUNK_BYTES] = {
     {0x52, 0x09, 0x6a, 0xd5, 0x30, 0x36, 0xa5, 0x38, 0xbf, 0x40, 0xa3, 0x9e,
      0x81, 0xf3, 0xd7, 0xfb},
     {0x7c, 0xe3, 0x39, 0x82, 0x9b, 0x2f, 0xff, 0x87, 0x34, 0x8e, 0x43, 0x44,
@@ -130,7 +131,7 @@ constexpr uint8_t SB3[BLOCK_SIZE][BLOCK_SIZE] = {
      0x55, 0x21, 0x0c, 0x7d},
 };
 
-constexpr uint8_t SB4[BLOCK_SIZE][BLOCK_SIZE] = {
+constexpr uint8_t SB4[BLOCK_SIZE * CHUNK_BYTES][BLOCK_SIZE * CHUNK_BYTES] = {
     {0x30, 0x68, 0x99, 0x1b, 0x87, 0xb9, 0x21, 0x78, 0x50, 0x39, 0xdb, 0xe1,
      0x72, 0x09, 0x62, 0x3c},
     {0x3e, 0x7e, 0x5e, 0x8e, 0xf1, 0xa0, 0xcc, 0xa3, 0x2a, 0x1d, 0xfb, 0xb6,
@@ -166,247 +167,263 @@ constexpr uint8_t SB4[BLOCK_SIZE][BLOCK_SIZE] = {
 };
 
 template <std::size_t S>
-bool blocksEqual(const std::array<uint8_t, S> &a,
-                 const std::array<uint8_t, S> &b) {
-  for (int i = 0; i < S; i++) {
-    if (a[i] != b[i]) {
-      return false;
-    }
-  }
-  return true;
-}
-
-template <std::size_t S>
-void applyXorBlock(std::array<uint8_t, S> &a, const std::array<uint8_t, S> &b) {
+void applyXorBlock(std::array<chunk, S> &a, const std::array<chunk, S> &b) {
   for (int i = 0; i < S; i++) {
     a[i] ^= b[i];
   }
 }
 
-// NOTE: These two seem to be a bit of a bottleneck
-// Is there some way to shortcut them?
-std::array<uint8_t, BLOCK_SIZE>
-rotRight128(const std::array<uint8_t, BLOCK_SIZE> &input, unsigned int shift) {
-  std::array<uint8_t, BLOCK_SIZE> output{};
+// Rotate and XOR in one iteration
+// NOTE: I'm pretty sure this can't be done in-place
+std::array<chunk, BLOCK_SIZE> rotXor(const std::array<chunk, BLOCK_SIZE> &in,
+                                     const std::array<chunk, BLOCK_SIZE> &toXor,
+                                     int shift) {
+  std::array<chunk, BLOCK_SIZE> out = {};
 
   shift %= 128;
+  if (shift < 0)
+    shift += 128;
 
-  for (int i = 0; i < 128; ++i) {
-    int destinationBit = (i + shift) % 128;
+  const unsigned wordShift = static_cast<unsigned>(shift) >> 5;
+  const unsigned bitShift = static_cast<unsigned>(shift) & 31;
 
-    int bit = (input[i / 8] >> (7 - i % 8)) & 1;
+  for (unsigned i = 0; i < 4; ++i) {
+    const unsigned src = (i - wordShift) & 3;
+    const unsigned prev = (i - wordShift - 1) & 3;
 
-    output[destinationBit / 8] |=
-        static_cast<uint8_t>(bit << (7 - destinationBit % 8));
+    if (bitShift == 0) {
+      out[i] = in[src] ^ toXor[i];
+    } else {
+      out[i] =
+          ((in[src] >> bitShift) | (in[prev] << (32 - bitShift))) ^ toXor[i];
+    }
   }
 
-  return output;
-}
-
-std::array<uint8_t, BLOCK_SIZE>
-rotLeft128(const std::array<uint8_t, BLOCK_SIZE> &input, unsigned int shift) {
-  std::array<uint8_t, BLOCK_SIZE> output{};
-
-  shift %= 128;
-
-  for (int i = 0; i < 128; ++i) {
-    int destinationBit = (i - shift + 128) % 128;
-
-    int bit = (input[i / 8] >> (7 - i % 8)) & 1;
-
-    output[destinationBit / 8] |= bit << (7 - destinationBit % 8);
-  }
-
-  return output;
+  return out;
 }
 
 // Substitution layers
-void applySL1(std::array<uint8_t, BLOCK_SIZE> &block) {
+void applySL1(std::array<chunk, BLOCK_SIZE> &block) {
   for (int i = 0; i < BLOCK_SIZE; i++) {
-    uint8_t v;
-    uint8_t y = block[i] >> 4;
-    uint8_t x = block[i] & 0x0f;
+    chunk v1 =
+        SB1[block[i] >> (CHUNK_BITS - 4)][block[i] >> (CHUNK_BITS - 8) & 0x0f];
+    chunk v2 = SB2[block[i] >> (CHUNK_BITS - 12) & 0x0f]
+                  [block[i] >> (CHUNK_BITS - 16) & 0x0f];
+    chunk v3 = SB3[block[i] >> (CHUNK_BITS - 20) & 0x0f]
+                  [block[i] >> (CHUNK_BITS - 24) & 0x0f];
+    chunk v4 = SB4[block[i] >> (CHUNK_BITS - 28) & 0x0f][block[i] & 0x0f];
 
-    switch (i % 4) {
-    case 0:
-      v = SB1[y][x];
-      break;
-    case 1:
-      v = SB2[y][x];
-      break;
-    case 2:
-      v = SB3[y][x];
-      break;
-    case 3:
-      v = SB4[y][x];
-      break;
-    }
-    block[i] = v;
+    block[i] = (v1 << 24) | (v2 << 16) | (v3 << 8) | v4;
   }
 }
 
-void applySL2(std::array<uint8_t, BLOCK_SIZE> &block) {
+void applySL2(std::array<chunk, BLOCK_SIZE> &block) {
   for (int i = 0; i < BLOCK_SIZE; i++) {
-    uint8_t v;
-    uint8_t y = block[i] >> 4;
-    uint8_t x = block[i] & 0x0f;
+    chunk v1 =
+        SB3[block[i] >> (CHUNK_BITS - 4)][block[i] >> (CHUNK_BITS - 8) & 0x0f];
+    chunk v2 = SB4[block[i] >> (CHUNK_BITS - 12) & 0x0f]
+                  [block[i] >> (CHUNK_BITS - 16) & 0x0f];
+    chunk v3 = SB1[block[i] >> (CHUNK_BITS - 20) & 0x0f]
+                  [block[i] >> (CHUNK_BITS - 24) & 0x0f];
+    chunk v4 = SB2[block[i] >> (CHUNK_BITS - 28) & 0x0f][block[i] & 0x0f];
 
-    // This is the only difference between SL1 and SL2
-    // The SB index starts at 2 (SB3) instead of 0 (SB1)
-    switch ((i + 2) % 4) {
-    case 0:
-      v = SB1[y][x];
-      break;
-    case 1:
-      v = SB2[y][x];
-      break;
-    case 2:
-      v = SB3[y][x];
-      break;
-    case 3:
-      v = SB4[y][x];
-      break;
-    }
-    block[i] = v;
+    block[i] = (v1 << 24) | (v2 << 16) | (v3 << 8) | v4;
   }
 }
 
-void applyDiffusion(std::array<uint8_t, BLOCK_SIZE> &block) {
-  uint8_t x0 = block[0], x1 = block[1], x2 = block[2], x3 = block[3],
-          x4 = block[4], x5 = block[5], x6 = block[6], x7 = block[7],
-          x8 = block[8], x9 = block[9], x10 = block[10], x11 = block[11],
-          x12 = block[12], x13 = block[13], x14 = block[14], x15 = block[15];
+// Extract byte i from a big-endian 32-bit unsigned integer.
+constexpr uint8_t getByte(uint32_t word, int i) {
+  return static_cast<uint8_t>(word >> (24 - 8 * i));
+}
 
-  block[0] = x3 ^ x4 ^ x6 ^ x8 ^ x9 ^ x13 ^ x14;
-  block[1] = x2 ^ x5 ^ x7 ^ x8 ^ x9 ^ x12 ^ x15;
-  block[2] = x1 ^ x4 ^ x6 ^ x10 ^ x11 ^ x12 ^ x15;
-  block[3] = x0 ^ x5 ^ x7 ^ x10 ^ x11 ^ x13 ^ x14;
-  block[4] = x0 ^ x2 ^ x5 ^ x8 ^ x11 ^ x14 ^ x15;
-  block[5] = x1 ^ x3 ^ x4 ^ x9 ^ x10 ^ x14 ^ x15;
-  block[6] = x0 ^ x2 ^ x7 ^ x9 ^ x10 ^ x12 ^ x13;
-  block[7] = x1 ^ x3 ^ x6 ^ x8 ^ x11 ^ x12 ^ x13;
-  block[8] = x0 ^ x1 ^ x4 ^ x7 ^ x10 ^ x13 ^ x15;
-  block[9] = x0 ^ x1 ^ x5 ^ x6 ^ x11 ^ x12 ^ x14;
-  block[10] = x2 ^ x3 ^ x5 ^ x6 ^ x8 ^ x13 ^ x15;
-  block[11] = x2 ^ x3 ^ x4 ^ x7 ^ x9 ^ x12 ^ x14;
-  block[12] = x1 ^ x2 ^ x6 ^ x7 ^ x9 ^ x11 ^ x12;
-  block[13] = x0 ^ x3 ^ x6 ^ x7 ^ x8 ^ x10 ^ x13;
-  block[14] = x0 ^ x3 ^ x4 ^ x5 ^ x9 ^ x11 ^ x14;
-  block[15] = x1 ^ x2 ^ x4 ^ x5 ^ x8 ^ x10 ^ x15;
+// Pack four bytes into a big-endian 32-bit unsigned integer.
+constexpr uint32_t packBytes(uint8_t b0, uint8_t b1, uint8_t b2, uint8_t b3) {
+  return (uint32_t(b0) << 24) | (uint32_t(b1) << 16) | (uint32_t(b2) << 8) |
+         uint32_t(b3);
+}
+
+// Pack a block of bytes into a block of 32-bit unsigned integers.
+std::array<uint32_t, BLOCK_SIZE>
+packByteBlock(const std::array<uint8_t, BLOCK_SIZE_BYTES> &bytes) {
+  std::array<uint32_t, BLOCK_SIZE> output = {};
+
+  // NOTE: This technically only works for 32 bit unsigned chunks for now
+  for (int i = 0; i < bytes.size() / CHUNK_BYTES; i++) {
+    output[i] = packBytes(bytes[i * 4], bytes[i * 4 + 1], bytes[i * 4 + 2],
+                          bytes[i * 4 + 3]);
+  }
+
+  return output;
+}
+
+// Unpack a block of chunks into a block of bytes.
+std::array<uint8_t, BLOCK_SIZE_BYTES>
+unpackToByteBlock(const std::array<chunk, BLOCK_SIZE> &chunks) {
+  std::array<uint8_t, BLOCK_SIZE_BYTES> output = {};
+
+  // Go through each chunk of output
+  for (int i = 0; i < chunks.size(); i++) {
+    // Unpack it to CHUNK_BYTES bytes into output
+    for (int b = 0; b < CHUNK_BYTES; b++) {
+      output[i * CHUNK_BYTES + b] = getByte(chunks[i], b);
+    }
+  }
+  return output;
+}
+
+void applyDiffusion(std::array<uint32_t, BLOCK_SIZE> &block) {
+  // Extract all 16 input bytes.
+  uint8_t x0 = getByte(block[0], 0);
+  uint8_t x1 = getByte(block[0], 1);
+  uint8_t x2 = getByte(block[0], 2);
+  uint8_t x3 = getByte(block[0], 3);
+
+  uint8_t x4 = getByte(block[1], 0);
+  uint8_t x5 = getByte(block[1], 1);
+  uint8_t x6 = getByte(block[1], 2);
+  uint8_t x7 = getByte(block[1], 3);
+
+  uint8_t x8 = getByte(block[2], 0);
+  uint8_t x9 = getByte(block[2], 1);
+  uint8_t x10 = getByte(block[2], 2);
+  uint8_t x11 = getByte(block[2], 3);
+
+  uint8_t x12 = getByte(block[3], 0);
+  uint8_t x13 = getByte(block[3], 1);
+  uint8_t x14 = getByte(block[3], 2);
+  uint8_t x15 = getByte(block[3], 3);
+
+  // ARIA diffusion layer.
+  uint8_t y0 = x3 ^ x4 ^ x6 ^ x8 ^ x9 ^ x13 ^ x14;
+  uint8_t y1 = x2 ^ x5 ^ x7 ^ x8 ^ x9 ^ x12 ^ x15;
+  uint8_t y2 = x1 ^ x4 ^ x6 ^ x10 ^ x11 ^ x12 ^ x15;
+  uint8_t y3 = x0 ^ x5 ^ x7 ^ x10 ^ x11 ^ x13 ^ x14;
+
+  uint8_t y4 = x0 ^ x2 ^ x5 ^ x8 ^ x11 ^ x14 ^ x15;
+  uint8_t y5 = x1 ^ x3 ^ x4 ^ x9 ^ x10 ^ x14 ^ x15;
+  uint8_t y6 = x0 ^ x2 ^ x7 ^ x9 ^ x10 ^ x12 ^ x13;
+  uint8_t y7 = x1 ^ x3 ^ x6 ^ x8 ^ x11 ^ x12 ^ x13;
+
+  uint8_t y8 = x0 ^ x1 ^ x4 ^ x7 ^ x10 ^ x13 ^ x15;
+  uint8_t y9 = x0 ^ x1 ^ x5 ^ x6 ^ x11 ^ x12 ^ x14;
+  uint8_t y10 = x2 ^ x3 ^ x5 ^ x6 ^ x8 ^ x13 ^ x15;
+  uint8_t y11 = x2 ^ x3 ^ x4 ^ x7 ^ x9 ^ x12 ^ x14;
+
+  uint8_t y12 = x1 ^ x2 ^ x6 ^ x7 ^ x9 ^ x11 ^ x12;
+  uint8_t y13 = x0 ^ x3 ^ x6 ^ x7 ^ x8 ^ x10 ^ x13;
+  uint8_t y14 = x0 ^ x3 ^ x4 ^ x5 ^ x9 ^ x11 ^ x14;
+  uint8_t y15 = x1 ^ x2 ^ x4 ^ x5 ^ x8 ^ x10 ^ x15;
+
+  // Pack the output bytes into four 32-bit unsigned integers.
+  block[0] = packBytes(y0, y1, y2, y3);
+  block[1] = packBytes(y4, y5, y6, y7);
+  block[2] = packBytes(y8, y9, y10, y11);
+  block[3] = packBytes(y12, y13, y14, y15);
 }
 
 // The odd round function
-void roundFunctionOdd(std::array<uint8_t, BLOCK_SIZE> &D,
-                      const std::array<uint8_t, BLOCK_SIZE> &RK) {
+void roundFunctionOdd(std::array<chunk, BLOCK_SIZE> &D,
+                      const std::array<chunk, BLOCK_SIZE> &RK) {
   applyXorBlock(D, RK);
   applySL1(D);
   applyDiffusion(D);
 }
 
 // The even round function
-void roundFunctionEven(std::array<uint8_t, BLOCK_SIZE> &D,
-                       const std::array<uint8_t, BLOCK_SIZE> &RK) {
+void roundFunctionEven(std::array<chunk, BLOCK_SIZE> &D,
+                       const std::array<chunk, BLOCK_SIZE> &RK) {
   applyXorBlock(D, RK);
   applySL2(D);
   applyDiffusion(D);
 }
 
-std::vector<std::array<uint8_t, BLOCK_SIZE>>
+std::vector<std::array<chunk, BLOCK_SIZE>>
 createEncryptionKeys(const AriaKey &key) {
-  size_t roundCount = roundsByKeySizeBytes.at(key.getSize());
-  std::array<uint8_t, BLOCK_SIZE> *CK1;
-  std::array<uint8_t, BLOCK_SIZE> *CK2;
-  std::array<uint8_t, BLOCK_SIZE> *CK3;
+  size_t roundCount = roundsByKeySize.at(key.getSizeBits());
 
-  switch (key.getSize()) {
-  case 16:
-    CK1 = &C1;
-    CK2 = &C2;
-    CK3 = &C3;
+  std::array<chunk, BLOCK_SIZE> CK1;
+  std::array<chunk, BLOCK_SIZE> CK2;
+  std::array<chunk, BLOCK_SIZE> CK3;
+
+  switch (key.getSizeBits()) {
+  case 128:
+    CK1 = packByteBlock(C1);
+    CK2 = packByteBlock(C2);
+    CK3 = packByteBlock(C3);
     break;
-  case 24:
-    CK1 = &C2;
-    CK2 = &C3;
-    CK3 = &C1;
+  case 192:
+    CK1 = packByteBlock(C2);
+    CK2 = packByteBlock(C3);
+    CK3 = packByteBlock(C1);
     break;
-  case 32:
-    CK1 = &C3;
-    CK2 = &C1;
-    CK3 = &C2;
+  case 256:
+    CK1 = packByteBlock(C3);
+    CK2 = packByteBlock(C1);
+    CK3 = packByteBlock(C2);
     break;
   default:
-    throw new std::invalid_argument(
-        std::format("Invalid key length (bytes): {}", key.getSize()));
+    throw std::invalid_argument(
+        std::format("Invalid key length: {}", key.getSizeBits()));
   }
-
-  std::array<uint8_t, BLOCK_SIZE> keyLeft = {};
-  const std::span<const uint8_t> &keyContent = key.getValue();
+  std::array<chunk, BLOCK_SIZE> keyLeft = {};
+  const std::span<const chunk> &keyContent = key.getValue();
   std::copy(keyContent.begin(), keyContent.end(), keyLeft.begin());
 
-  std::array<uint8_t, BLOCK_SIZE> keyRight = {};
-  int remainingKeyBytes = key.getSize() - BLOCK_SIZE;
-  if (remainingKeyBytes > 0) {
+  std::array<chunk, BLOCK_SIZE> keyRight = {};
+  int remainingKeyChunks = key.getSizeChunks() - BLOCK_SIZE;
+  if (remainingKeyChunks > 0) {
     std::copy(keyContent.begin() + BLOCK_SIZE, keyContent.end(),
               keyRight.begin());
   }
-  //   for (int i = remainingKeyBytes; i < 16; i++) {
-  //     keyRight[i] = 0;
-  //   }
 
-  std::array<uint8_t, BLOCK_SIZE> W0;
-  std::array<uint8_t, BLOCK_SIZE> W1;
-  std::array<uint8_t, BLOCK_SIZE> W2;
-  std::array<uint8_t, BLOCK_SIZE> W3;
+  std::array<chunk, BLOCK_SIZE> W0;
+  std::array<chunk, BLOCK_SIZE> W1;
+  std::array<chunk, BLOCK_SIZE> W2;
+  std::array<chunk, BLOCK_SIZE> W3;
+
   // W0
   std::copy(keyLeft.begin(), keyLeft.end(), W0.begin());
   // W1
   std::copy(W0.begin(), W0.end(), W1.begin());
-  roundFunctionOdd(W1, *CK1);
+  roundFunctionOdd(W1, CK1);
   applyXorBlock(W1, keyRight);
   // W2
   std::copy(W1.begin(), W1.end(), W2.begin());
-  roundFunctionEven(W2, *CK2);
+  roundFunctionEven(W2, CK2);
   applyXorBlock(W2, W0);
   // W3
   std::copy(W2.begin(), W2.end(), W3.begin());
-  roundFunctionOdd(W3, *CK3);
+  roundFunctionOdd(W3, CK3);
   applyXorBlock(W3, W1);
 
-  std::vector<std::array<uint8_t, BLOCK_SIZE> *> W = {&W0, &W1, &W2, &W3};
+  std::array<chunk, BLOCK_SIZE> *W[4] = {&W0, &W1, &W2, &W3};
 
   // Compute encryption round keys
-  std::vector<std::array<uint8_t, BLOCK_SIZE>> encryptionKeys(roundCount + 1);
+  std::vector<std::array<chunk, BLOCK_SIZE>> encryptionKeys;
+  encryptionKeys.reserve(roundCount + 1);
 
   // NOTE: There's an extra key for the last round
   for (int i = 0; i < roundCount + 1; i++) {
-    unsigned int shift =
-        i <= 3 ? 19 : (i <= 7 ? 31 : (i <= 11 ? 61 : (i <= 15 ? 31 : 19)));
-    auto *toRot = W[i % 4];
-    auto *toXor = W[(i + 1) % 4];
+    int shift =
+        i <= 3 ? 19 : (i <= 7 ? 31 : (i <= 11 ? 67 : (i <= 15 ? 97 : 109)));
+    auto *toRot = W[(i + 1) % 4];
+    auto *toXor = W[i % 4];
 
-    // Rotate right
-    if (i <= 7) {
-      auto rotated = rotRight128(*toRot, shift);
-      applyXorBlock(rotated, *toXor);
-      encryptionKeys[i] = rotated;
-    } else { // Rotate left
-      auto rotated = rotLeft128(*toRot, shift);
-      applyXorBlock(rotated, *toXor);
-      encryptionKeys[i] = rotated;
-    }
+    // Rotate and XOR in one step
+    encryptionKeys.push_back(rotXor(*toRot, *toXor, shift));
   }
 
   return encryptionKeys;
 }
 
-std::vector<std::array<uint8_t, BLOCK_SIZE>>
+std::vector<std::array<chunk, BLOCK_SIZE>>
 createDecryptionKeys(const AriaKey &key) {
-  size_t roundCount = roundsByKeySizeBytes.at(key.getSize());
+  size_t roundCount = roundsByKeySize.at(key.getSizeBits());
 
   // Compute decryption round keys based on the encryption keys
-  std::vector<std::array<uint8_t, BLOCK_SIZE>> encryptionKeys =
+  std::vector<std::array<chunk, BLOCK_SIZE>> encryptionKeys =
       createEncryptionKeys(key);
-  std::vector<std::array<uint8_t, BLOCK_SIZE>> decryptionKeys(roundCount + 1);
+  std::vector<std::array<chunk, BLOCK_SIZE>> decryptionKeys(roundCount + 1);
 
   std::reverse_copy(encryptionKeys.begin(), encryptionKeys.end(),
                     decryptionKeys.begin());
@@ -418,36 +435,18 @@ createDecryptionKeys(const AriaKey &key) {
   return decryptionKeys;
 }
 
-std::array<uint8_t, BLOCK_SIZE>
-encrypt(const std::array<uint8_t, BLOCK_SIZE> &plaintext, const AriaKey &key) {
-  std::array<uint8_t, BLOCK_SIZE> ciphertext = {};
-  std::copy(plaintext.begin(), plaintext.end(), ciphertext.begin());
+std::array<uint8_t, BLOCK_SIZE_BYTES>
+encrypt(const std::array<uint8_t, BLOCK_SIZE_BYTES> &plaintext,
+        const AriaKey &key) {
+  std::array<chunk, BLOCK_SIZE> input = packByteBlock(plaintext);
+  std::array<chunk, BLOCK_SIZE> output;
 
-  auto encryptionKeys = createEncryptionKeys(key);
-
-  for (int i = 0; i < encryptionKeys.size() - 1; i++) {
-    // Odd round
-    if (i % 2 == 0) // Index 0 (even) is round 1 (odd), etc
-    {
-      roundFunctionOdd(ciphertext, encryptionKeys[i]);
-    }
-    // Even round
-    else {
-      // Last round
-      if (i == encryptionKeys.size() - 2) {
-        applyXorBlock(ciphertext, encryptionKeys[i]);
-        applySL2(ciphertext);
-        applyXorBlock(ciphertext, encryptionKeys[i + 1]);
-        return ciphertext;
-      }
-      roundFunctionEven(ciphertext, encryptionKeys[i]);
-    }
-  }
-  throw std::logic_error("Failed to encrypt");
+  encrypt(input, key, output);
+  return unpackToByteBlock(output);
 }
 
-void encrypt(const std::array<uint8_t, BLOCK_SIZE> &plaintext,
-             const AriaKey &key, std::array<uint8_t, BLOCK_SIZE> &output) {
+void encrypt(const std::array<chunk, BLOCK_SIZE> &plaintext, const AriaKey &key,
+             std::array<chunk, BLOCK_SIZE> &output) {
   std::copy(plaintext.begin(), plaintext.end(), output.begin());
 
   auto encryptionKeys = createEncryptionKeys(key);
@@ -472,36 +471,18 @@ void encrypt(const std::array<uint8_t, BLOCK_SIZE> &plaintext,
   }
 }
 
-std::array<uint8_t, BLOCK_SIZE>
-decrypt(const std::array<uint8_t, BLOCK_SIZE> &ciphertext, const AriaKey &key) {
-  std::array<uint8_t, BLOCK_SIZE> plaintext = {};
-  std::copy(ciphertext.begin(), ciphertext.end(), plaintext.begin());
+std::array<uint8_t, BLOCK_SIZE_BYTES>
+decrypt(const std::array<uint8_t, BLOCK_SIZE_BYTES> &ciphertext,
+        const AriaKey &key) {
+  std::array<chunk, BLOCK_SIZE> input = packByteBlock(ciphertext);
+  std::array<chunk, BLOCK_SIZE> output;
 
-  auto decryptionKeys = createDecryptionKeys(key);
-
-  for (int i = 0; i < decryptionKeys.size() - 1; i++) {
-    // Odd round
-    if (i % 2 == 0) // Index 0 (even) is round 1 (odd), etc
-    {
-      roundFunctionOdd(plaintext, decryptionKeys[i]);
-    }
-    // Even round
-    else {
-      // Last round
-      if (i == decryptionKeys.size() - 2) {
-        applyXorBlock(plaintext, decryptionKeys[i]);
-        applySL2(plaintext);
-        applyXorBlock(plaintext, decryptionKeys[i + 1]);
-        return plaintext;
-      }
-      roundFunctionEven(plaintext, decryptionKeys[i]);
-    }
-  }
-  throw std::logic_error("Failed to decrypt");
+  decrypt(input, key, output);
+  return unpackToByteBlock(output);
 }
 
-void decrypt(const std::array<uint8_t, BLOCK_SIZE> &ciphertext,
-             const AriaKey &key, std::array<uint8_t, BLOCK_SIZE> &output) {
+void decrypt(const std::array<chunk, BLOCK_SIZE> &ciphertext,
+             const AriaKey &key, std::array<chunk, BLOCK_SIZE> &output) {
   std::copy(ciphertext.begin(), ciphertext.end(), output.begin());
 
   auto decryptionKeys = createDecryptionKeys(key);

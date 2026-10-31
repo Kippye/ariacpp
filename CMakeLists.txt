@@ -16,7 +16,7 @@ ENDIF()
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Only Linux flags for now
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=${CPP_VERSION} -lstdc++")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=${CPP_VERSION} -lstdc++ -Ofast")
 
 target_sources(${PROJECT_NAME} PUBLIC
     "${ARIA_CPP_SRC}/aria.cpp"
