@@ -1,6 +1,7 @@
 #pragma once
 #include <array>
 #include <cstdint>
+#include <iomanip>
 #include <iostream>
 #include <span>
 
@@ -27,19 +28,24 @@ bool blocksEqual(const std::array<chunk, S> &a, const std::array<chunk, S> &b) {
   return true;
 }
 
-inline void printAsHex(const char *label,
-                       const std::span<const uint8_t> &input) {
+inline void printAsHex(const char *label, const std::span<const uint8_t> &input,
+                       const char *separator = "",
+                       const char *delimiter = "\n") {
   std::cout << label;
   for (int i = 0; i < input.size(); i++) {
-    std::cout << std::hex << (unsigned int)input[i] << " ";
+    std::cout << std::hex << std::setw(sizeof(uint8_t) * 2) << std::setfill('0')
+              << (unsigned int)input[i] << separator;
   }
-  std::cout << std::endl;
+  std::cout << delimiter;
 }
 
-inline void printAsHex(const char *label, const std::span<const chunk> &input) {
+inline void printAsHex(const char *label, const std::span<const chunk> &input,
+                       const char *separator = "",
+                       const char *delimiter = "\n") {
   std::cout << label;
   for (int i = 0; i < input.size(); i++) {
-    std::cout << std::hex << (unsigned int)input[i] << " ";
+    std::cout << std::hex << std::setw(sizeof(chunk) * 2) << std::setfill('0')
+              << (unsigned int)input[i] << separator;
   }
-  std::cout << std::endl;
+  std::cout << delimiter;
 }
