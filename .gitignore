@@ -3,3 +3,4 @@ doc.cpp
 build/
 .clangd
 *.txt
+compile_commands.json

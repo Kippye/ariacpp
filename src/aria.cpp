@@ -9,8 +9,6 @@
 #include <span>
 #include <vector>
 
-#include "util.h"
-
 const std::map<size_t, size_t> roundsByKeySize = {
     {128, 12},
     {192, 14},

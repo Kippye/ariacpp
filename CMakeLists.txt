@@ -3,22 +3,23 @@ cmake_minimum_required(VERSION 3.25)
 project(ariacpp VERSION 0.1.0)
 set(CPP_VERSION "c++23")
 
-option(IS_LIBRARY "Build as a library" OFF)
+option(ARIACPP_TESTS "Build testing executable" ON)
 
-set(ARIA_CPP_SRC    "${CMAKE_SOURCE_DIR}")
+set(ARIACPP_SRC    "${CMAKE_CURRENT_SOURCE_DIR}/src")
+set(ARIACPP_INCLUDE    "${CMAKE_CURRENT_SOURCE_DIR}/include")
 
-IF (IS_LIBRARY)
-    add_library(${PROJECT_NAME})
-ELSE()
-    add_executable(${PROJECT_NAME})
+add_library(${PROJECT_NAME})
+IF (ARIACPP_TESTS)
+    add_subdirectory("tests")
 ENDIF()
 
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-
 # Only Linux flags for now
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=${CPP_VERSION} -lstdc++ -Ofast")
+target_compile_options(${PROJECT_NAME} PRIVATE "${CMAKE_CXX_FLAGS} -std=${CPP_VERSION} -lstdc++ -Ofast")
+
+target_include_directories(${PROJECT_NAME} PUBLIC
+    "${ARIACPP_INCLUDE}"
+)
 
 target_sources(${PROJECT_NAME} PUBLIC
-    "${ARIA_CPP_SRC}/aria.cpp"
-    "${ARIA_CPP_SRC}/main.cpp"
+    "${ARIACPP_SRC}/aria.cpp"
 )
