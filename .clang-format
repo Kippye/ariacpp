@@ -1,0 +1,55 @@
+Language: Cpp
+BasedOnStyle: Google
+IndentWidth: 2
+AccessModifierOffset: -4
+ColumnLimit: 110
+SortIncludes: true
+ReflowComments: false
+
+AlignAfterOpenBracket: Align
+AlignConsecutiveAssignments: false
+AlignConsecutiveDeclarations: false
+AlignEscapedNewlinesLeft: true
+AlignOperands: true
+AlignTrailingComments: false
+
+AllowAllArgumentsOnNextLine: true
+AllowShortEnumsOnASingleLine: false
+AllowAllParametersOfDeclarationOnNextLine: true
+AllowShortBlocksOnASingleLine: false
+AllowShortCaseLabelsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: None
+AllowShortIfStatementsOnASingleLine: false
+AllowShortLoopsOnASingleLine: false
+
+AlwaysBreakAfterDefinitionReturnType: None
+AlwaysBreakAfterReturnType: None
+AlwaysBreakBeforeMultilineStrings: false
+AlwaysBreakTemplateDeclarations: true
+
+BinPackArguments: true
+BinPackParameters: false
+
+BreakStringLiterals: false
+BreakArrays: false
+BreakBeforeBraces: Custom
+BraceWrapping:
+  SplitEmptyFunction: false # Empty functions have both the braces on the same line
+  SplitEmptyRecord: false # Empty classes, structs, etc have both the braces on the same line
+
+IndentAccessModifiers: true
+NamespaceIndentation: All
+
+PackConstructorInitializers: NextLine
+
+PointerAlignment: Left
+QualifierAlignment: Custom
+QualifierOrder: [inline, static, const, constexpr, volatile, type]
+ReferenceAlignment: Pointer
+
+SpaceAfterTemplateKeyword: true
+SpaceBeforeAssignmentOperators: true
+SpaceBeforeCaseColon: false
+SpaceBeforeCtorInitializerColon: true
+SpaceBeforeInheritanceColon: true
+SpaceBeforeRangeBasedForLoopColon: true

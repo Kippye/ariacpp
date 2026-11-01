@@ -1,5 +1,3 @@
-#include "aria.h"
-#include "util.h"
 #include <cassert>
 #include <chrono>
 #include <filesystem>
@@ -8,23 +6,25 @@
 #include <print>
 #include <random>
 
+#include "aria.h"
+#include "util.h"
+
 template <class T, class U>
 concept Derived = std::is_base_of<U, T>::value;
 
 std::string bytesToString(const std::array<uint8_t, BLOCK_SIZE> bytes) {
   std::string str;
-  str.assign(reinterpret_cast<std::string::value_type *>(
-                 const_cast<std::uint8_t *>(bytes.data())),
+  str.assign(reinterpret_cast<std::string::value_type*>(const_cast<std::uint8_t*>(bytes.data())),
              bytes.size() / sizeof(std::string::value_type));
   return str;
 }
 
-void getRandomBytes(std::array<uint8_t, BLOCK_SIZE_BYTES> &block) {
+void getRandomBytes(std::array<uint8_t, BLOCK_SIZE_BYTES>& block) {
   static thread_local std::mt19937 rng{std::random_device{}()};
 
   int offset = 0;
   uint32_t bits = 0;
-  for (uint8_t &d : block) {
+  for (uint8_t& d : block) {
     if (offset == 0)
       bits = rng();
     d = static_cast<uint8_t>(bits & 0xFF);
@@ -34,7 +34,8 @@ void getRandomBytes(std::array<uint8_t, BLOCK_SIZE_BYTES> &block) {
   }
 }
 
-template <size_t S> void getRandomBlock(std::array<chunk, S> &block) {
+template <size_t S>
+void getRandomBlock(std::array<chunk, S>& block) {
   static thread_local std::mt19937 rng{std::random_device{}()};
 
   for (int i = 0; i < S; i++) {
@@ -42,7 +43,8 @@ template <size_t S> void getRandomBlock(std::array<chunk, S> &block) {
   }
 }
 
-template <Derived<AriaKey> K, size_t S> K getRandomKey() {
+template <Derived<AriaKey> K, size_t S>
+K getRandomKey() {
   std::array<chunk, S> data = {};
 
   getRandomBlock<S>(data);
@@ -58,14 +60,13 @@ void writeKeysToFile(std::filesystem::path path, unsigned int amount) {
     throw std::runtime_error("Could not open key file");
 
   for (unsigned int i = 0; i < amount; i++) {
-    const AriaKey &key = getRandomKey<K, S>();
+    const AriaKey& key = getRandomKey<K, S>();
 
     for (uint32_t word : key.getValue()) {
-      const uint8_t bytes[4] = {
-          static_cast<uint8_t>(word >> 24), static_cast<uint8_t>(word >> 16),
-          static_cast<uint8_t>(word >> 8), static_cast<uint8_t>(word)};
+      const uint8_t bytes[4] = {static_cast<uint8_t>(word >> 24), static_cast<uint8_t>(word >> 16),
+                                static_cast<uint8_t>(word >> 8), static_cast<uint8_t>(word)};
 
-      out.write(reinterpret_cast<const char *>(bytes), sizeof(bytes));
+      out.write(reinterpret_cast<const char*>(bytes), sizeof(bytes));
     }
   }
   out.close();
@@ -82,11 +83,10 @@ void writeBlocksToFile(std::filesystem::path path, unsigned int amount) {
     getRandomBlock(block);
 
     for (uint32_t word : block) {
-      const uint8_t bytes[4] = {
-          static_cast<uint8_t>(word >> 24), static_cast<uint8_t>(word >> 16),
-          static_cast<uint8_t>(word >> 8), static_cast<uint8_t>(word)};
+      const uint8_t bytes[4] = {static_cast<uint8_t>(word >> 24), static_cast<uint8_t>(word >> 16),
+                                static_cast<uint8_t>(word >> 8), static_cast<uint8_t>(word)};
 
-      out.write(reinterpret_cast<const char *>(bytes), sizeof(bytes));
+      out.write(reinterpret_cast<const char*>(bytes), sizeof(bytes));
     }
   }
   out.close();
@@ -103,7 +103,7 @@ std::vector<K> readKeysFromFile(std::filesystem::path path) {
 
   while (in.peek() != EOF) {
     std::array<uint8_t, S * CHUNK_BYTES> keyBytes{};
-    in.read(reinterpret_cast<char *>(keyBytes.data()), keyBytes.size());
+    in.read(reinterpret_cast<char*>(keyBytes.data()), keyBytes.size());
     if (in.gcount() != static_cast<std::streamsize>(keyBytes.size()))
       throw std::runtime_error("Failed to read entire key");
 
@@ -113,8 +113,7 @@ std::vector<K> readKeysFromFile(std::filesystem::path path) {
 
       keyChunks[i] = (static_cast<uint32_t>(keyBytes[j]) << 24) |
                      (static_cast<uint32_t>(keyBytes[j + 1]) << 16) |
-                     (static_cast<uint32_t>(keyBytes[j + 2]) << 8) |
-                     static_cast<uint32_t>(keyBytes[j + 3]);
+                     (static_cast<uint32_t>(keyBytes[j + 2]) << 8) | static_cast<uint32_t>(keyBytes[j + 3]);
     }
 
     keys.push_back(K(keyChunks));
@@ -124,8 +123,7 @@ std::vector<K> readKeysFromFile(std::filesystem::path path) {
   return keys;
 }
 
-std::vector<std::array<chunk, BLOCK_SIZE>>
-readBlocksFromFile(std::filesystem::path path) {
+std::vector<std::array<chunk, BLOCK_SIZE>> readBlocksFromFile(std::filesystem::path path) {
   std::ifstream in;
   in.open(path, std::ios::binary);
   if (!in)
@@ -135,10 +133,10 @@ readBlocksFromFile(std::filesystem::path path) {
 
   while (in.peek() != EOF) {
     std::array<uint8_t, BLOCK_SIZE_BYTES> plaintextBytes{};
-    in.read(reinterpret_cast<char *>(plaintextBytes.data()),
-            plaintextBytes.size());
-    if (in.gcount() != static_cast<std::streamsize>(plaintextBytes.size()))
+    in.read(reinterpret_cast<char*>(plaintextBytes.data()), plaintextBytes.size());
+    if (in.gcount() != static_cast<std::streamsize>(plaintextBytes.size())) {
       throw std::runtime_error("Failed to read entire block");
+    }
 
     std::array<chunk, BLOCK_SIZE> block{};
     for (size_t i = 0; i < block.size(); ++i) {
@@ -170,8 +168,8 @@ readBlocksFromFile(std::filesystem::path path) {
 #define PRECISE_TIMING false
 
 template <Derived<AriaKey> K>
-void test(const std::vector<K> &keys,
-          const std::vector<std::array<chunk, BLOCK_SIZE>> &blocks,
+void test(const std::vector<K>& keys,
+          const std::vector<std::array<chunk, BLOCK_SIZE>>& blocks,
           long printReps) {
   const long reps = std::min(keys.size(), blocks.size());
   std::array<chunk, BLOCK_SIZE> encrypted;
@@ -207,8 +205,8 @@ void test(const std::vector<K> &keys,
     std::print("Total: {}\n - Cryptography: {}\n   of "
                "which: Encryption: {}, "
                "Decryption: {}\n",
-               afterAll - beforeCrypt, afterCrypt - beforeCrypt,
-               afterEncrypt - beforeCrypt, afterCrypt - afterEncrypt);
+               afterAll - beforeCrypt, afterCrypt - beforeCrypt, afterEncrypt - beforeCrypt,
+               afterCrypt - afterEncrypt);
 #endif
 
     if (printReps != 0 && i % printReps == 0 && i != 0) {
@@ -221,15 +219,12 @@ void test(const std::vector<K> &keys,
 
 int main() {
   unsigned int testCount = 1000000;
-  const char *keyPath = "keys.txt";
-  const char *plaintextPath = "texts.txt";
+  const char* keyPath = "keys.txt";
+  const char* plaintextPath = "texts.txt";
 
-  writeKeysToFile<AriaKey128, AriaKey128::keySizeBits / CHUNK_BITS>(keyPath,
-                                                                    testCount);
+  writeKeysToFile<AriaKey128, AriaKey128::keySizeBits / CHUNK_BITS>(keyPath, testCount);
   writeBlocksToFile(plaintextPath, testCount);
-  auto keys =
-      readKeysFromFile<AriaKey128, AriaKey128::keySizeBits / CHUNK_BITS>(
-          keyPath);
+  auto keys = readKeysFromFile<AriaKey128, AriaKey128::keySizeBits / CHUNK_BITS>(keyPath);
   auto blocks = readBlocksFromFile(plaintextPath);
   // Only test if keys were successfully written and read
   assert(keys.size() == testCount);
