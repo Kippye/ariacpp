@@ -4,9 +4,17 @@
 #include <array>
 #include <cstdint>
 #include <span>
+#include <stdexcept>
 #include <vector>
 
 namespace ariacpp {
+  // The error thrown for any key-related exceptions (invalid master key, missing round keys).
+  class key_error : public std::runtime_error {
+    public:
+      key_error(const std::string& message) : std::runtime_error(message) {
+      }
+  };
+
   using chunk = uint32_t;
   // Size of a block in bytes
   constexpr size_t BLOCK_SIZE = 16;
